@@ -1,0 +1,62 @@
+# Lint, test (every supported Python + the lowest declared dependency versions), build and smoke-test the
+# wheel on every push to main and every pull request.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+
+  test:
+    name: test (py${{ matrix.python }}${{ matrix.resolution == 'lowest-direct' && ', lowest deps' || '' }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        resolution: [highest]
+        include:
+          # the declared minimum versions (e.g. opentelemetry-sdk>=1.30, openai>=1.66) must really work
+          - python: "3.10"
+            resolution: lowest-direct
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+      # Resolve fresh (not --locked): a library should be tested against what users will install
+      - run: uv run --isolated --resolution ${{ matrix.resolution }} pytest -q
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv build
+      - run: uvx twine check --strict dist/*
+      - name: Smoke-test the built wheel in a clean environment
+        run: |
+          uv venv /tmp/smoke
+          uv pip install --python /tmp/smoke/bin/python "$(ls dist/*.whl)[all]" fastapi
+          /tmp/smoke/bin/python -I -c "import fastapi; from databricks_apps_telemetry import instrument; print(instrument(fastapi.FastAPI()).features)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/

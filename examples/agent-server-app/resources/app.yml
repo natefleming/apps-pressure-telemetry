@@ -1,0 +1,27 @@
+resources:
+  schemas:
+    telemetry:
+      catalog_name: ${var.catalog}
+      name: ${var.schema}
+
+  apps:
+    agent_app:
+      name: ${var.app_name}
+      description: MLflow AgentServer agent instrumented with apps-pressure-telemetry
+      source_code_path: ../app
+      # App telemetry: Databricks injects the OTLP collector endpoint and writes these tables
+      telemetry_export_destinations:
+        - unity_catalog:
+            logs_table: ${resources.schemas.telemetry.catalog_name}.${resources.schemas.telemetry.name}.otel_logs
+            metrics_table: ${resources.schemas.telemetry.catalog_name}.${resources.schemas.telemetry.name}.otel_metrics
+            traces_table: ${resources.schemas.telemetry.catalog_name}.${resources.schemas.telemetry.name}.otel_spans
+      config:
+        command: ["python", "-m", "agent_server.start_server", "--workers", "2"]
+        env:
+          - name: LLM_ENDPOINT
+            value_from: llm
+      resources:
+        - name: llm
+          serving_endpoint:
+            name: ${var.llm_endpoint}
+            permission: CAN_QUERY

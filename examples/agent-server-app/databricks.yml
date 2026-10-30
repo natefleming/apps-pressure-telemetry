@@ -1,0 +1,30 @@
+# Example: an MLflow AgentServer agent on Databricks Apps, instrumented with apps-pressure-telemetry,
+# plus a job that runs the query notebook against the app's telemetry tables.
+#
+#   databricks bundle deploy --var catalog=<catalog> --var warehouse_id=<sql-warehouse-id>
+#   databricks bundle run agent_app            # build + start the app
+#   databricks bundle run query_metrics        # after sending the app some traffic
+bundle:
+  name: apps-pressure-telemetry-example
+  engine: direct
+
+variables:
+  catalog:
+    description: Catalog for the telemetry schema (must be on your own cloud storage, not default storage)
+  schema:
+    default: app_telemetry
+    description: Schema the app's otel_logs / otel_metrics / otel_spans tables are written to
+  app_name:
+    default: agent-telemetry-example
+    description: Databricks App name (= service_name in the telemetry tables)
+  llm_endpoint:
+    default: databricks-claude-haiku-5-5
+    description: Foundation Model serving endpoint the agent calls
+
+include:
+  - resources/*.yml
+
+targets:
+  dev:
+    default: true
+    mode: development

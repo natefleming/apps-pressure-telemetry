@@ -1,0 +1,17 @@
+resources:
+  jobs:
+    query_metrics:
+      name: ${var.app_name}-query-metrics
+      tasks:
+        - task_key: query_metrics
+          notebook_task:
+            notebook_path: ../notebooks/query_metrics.py
+            base_parameters:
+              catalog: ${resources.schemas.telemetry.catalog_name}
+              schema: ${resources.schemas.telemetry.name}
+              app_name: ${resources.apps.agent_app.name}
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "4"

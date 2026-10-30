@@ -1,0 +1,87 @@
+# Release on a version tag: build once, publish to TestPyPI, then (after approval on the `pypi`
+# environment) to PyPI, then create a GitHub release with the artifacts.
+#
+#   1. Bump `version` in pyproject.toml and `__version__` in databricks_apps_telemetry/__init__.py,
+#      update CHANGELOG.md, merge to main.
+#   2. git tag v0.1.0 && git push origin v0.1.0
+#
+# Publishing uses PyPI Trusted Publishing (OIDC) - no API tokens are stored in the repository. One-time
+# setup: on pypi.org and test.pypi.org add a (pending) trusted publisher for this repository, workflow
+# `release.yml`, environments `pypi` / `testpypi`; in GitHub create those two environments and add
+# required reviewers to `pypi`.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Tag, pyproject version and __version__ must agree
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          project="$(uv version --short)"
+          package="$(python3 -c 'import re,pathlib; print(re.search(r"__version__: str = \"([^\"]+)\"", pathlib.Path("databricks_apps_telemetry/__init__.py").read_text()).group(1))')"
+          echo "tag=$tag pyproject=$project __version__=$package"
+          test "$tag" = "$project" && test "$tag" = "$package"
+      - run: uv run --isolated pytest -q
+      - run: uv build
+      - run: uvx twine check --strict dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish-testpypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/apps-pressure-telemetry
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  publish-pypi:
+    needs: publish-testpypi
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/apps-pressure-telemetry
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    needs: publish-pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --notes "See CHANGELOG.md"
+        env:
+          GH_TOKEN: ${{ github.token }}
