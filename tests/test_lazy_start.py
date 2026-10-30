@@ -156,3 +156,32 @@ def test_exclude_metrics_drops_matching_metrics_only() -> None:
     assert "container.filesystem.utilization" in result and "container.cpu.limit" in result
     # process.* kept, only process.runtime.* dropped (metric names vary across instrumentation versions)
     assert [n for n in result if n.startswith("process.") and not n.startswith("process.runtime.")]
+
+
+def test_export_interval_honours_otel_env_and_explicit_argument(monkeypatch) -> None:
+    from databricks_apps_telemetry._setup import _export_interval_seconds
+
+    monkeypatch.delenv("OTEL_METRIC_EXPORT_INTERVAL", raising=False)
+    assert _export_interval_seconds(None) == 10.0  # library default
+    monkeypatch.setenv("OTEL_METRIC_EXPORT_INTERVAL", "2500")  # standard env var, milliseconds
+    assert _export_interval_seconds(None) == 2.5
+    assert _export_interval_seconds(30) == 30  # explicit argument wins
+    monkeypatch.setenv("OTEL_METRIC_EXPORT_INTERVAL", "soon")  # invalid: warn and fall back
+    assert _export_interval_seconds(None) == 10.0
+
+
+def test_second_call_with_different_options_warns() -> None:
+    result = _run("""
+        import json, logging
+        records = []
+        logging.getLogger("databricks_apps_telemetry").addHandler(type("H", (logging.Handler,), {"emit": lambda s, r: records.append(r.getMessage())})())
+        from fastapi import FastAPI
+        from databricks_apps_telemetry import instrument
+
+        app = FastAPI()
+        instrument(app)
+        instrument(app)                               # same options: silent
+        instrument(app, exclude_metrics=["system.*"])  # different: warns, keeps the first call's options
+        print(json.dumps([m for m in records if "already called" in m]))
+    """)
+    assert len(result) == 1 and "exclude_metrics=('system.*',)" in result[0]

@@ -205,3 +205,21 @@ def test_raw_streaming_response_is_passed_through(otel, inst, client) -> None:
     chunks = list(raw.parse())  # untouched: the caller parses and iterates it
     assert len(chunks) == 4
     assert otel.collect()["gen_ai.client.operation.duration"][0][0][0] == 1
+
+
+def test_streaming_response_body_is_not_consumed(otel, inst) -> None:
+    # with_streaming_response hands the caller an unread body: telemetry must not read it first
+    class Body(httpx.SyncByteStream):
+        def __iter__(self):
+            yield _handler(httpx.Request("POST", "https://example.test/x", json={"model": MODEL})).content
+
+    streaming = openai.OpenAI(
+        api_key="x",
+        base_url="https://example.test/serving-endpoints",
+        max_retries=0,
+        http_client=httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, stream=Body()))),
+    )
+    with streaming.chat.completions.with_streaming_response.create(model=MODEL, messages=[]) as resp:
+        assert not resp.http_response.is_stream_consumed
+        assert resp.parse().choices[0].message.content == "hi"
+    assert otel.collect()["gen_ai.client.operation.duration"][0][0][0] == 1

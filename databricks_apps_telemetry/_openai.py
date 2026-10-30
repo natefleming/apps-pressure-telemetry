@@ -72,15 +72,21 @@ def _visible_text(content: object) -> str:
 
 
 def _is_raw_response(obj: Any) -> bool:
-    """`client.chat.completions.with_raw_response.create(...)` (used by langchain-openai) returns an HTTP
-    response wrapper instead of the parsed object."""
+    """`with_raw_response.create(...)` (used by langchain-openai) and `with_streaming_response.create(...)`
+    return an HTTP response wrapper instead of the parsed object."""
     return callable(getattr(obj, "parse", None)) and hasattr(obj, "http_response")
 
 
 def _parsed(obj: Any) -> Any:
-    """Parsed body of a raw response; `parse()` caches, so the caller's own parse() returns the same object."""
+    """Parsed body of a raw response; `parse()` caches, so the caller's own parse() returns the same object.
+
+    Only when the body has already been read (`with_raw_response`): parsing an unread body
+    (`with_streaming_response`) would consume the stream the caller is about to read.
+    """
     if not _is_raw_response(obj):
         return obj
+    if not getattr(obj.http_response, "is_stream_consumed", False):
+        return None
     try:
         return obj.parse()
     except Exception:  # noqa: BLE001 - telemetry must not change the error; the caller's own parse() raises it

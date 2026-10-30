@@ -78,8 +78,8 @@ def test_unlimited_memory_and_missing_cgroup(tmp_path: Path) -> None:
 
 
 def test_metrics_export_fractions_of_limit(otel, cgroup_v1: Path) -> None:
-    reader = CgroupReader(cgroup_v1)
-    ContainerMetrics(otel.meter_provider.get_meter("t"), reader=reader)
+    now = [100.0]  # fake monotonic clock: deterministic, independent of how fast the test host is
+    ContainerMetrics(otel.meter_provider.get_meter("t"), reader=CgroupReader(cgroup_v1), clock=lambda: now[0])
     first = otel.collect()
     assert first["container.memory.utilization"][0][0] == pytest.approx(1.5 / 8)
     assert first["container.memory.limit"][0][0] == 8 * GIB
@@ -87,12 +87,11 @@ def test_metrics_export_fractions_of_limit(otel, cgroup_v1: Path) -> None:
     assert "container.cpu.utilization" not in first  # needs two samples
     assert 0 <= first["container.filesystem.utilization"][0][0] <= 1
 
-    # one full core used for the elapsed wall time -> 50% of a 2-core limit
-    import time
-
-    started = time.monotonic()
-    time.sleep(0.2)
-    elapsed = time.monotonic() - started
-    (cgroup_v1 / "cpuacct/cpuacct.usage").write_text(str(int((587.217687224 + elapsed) * 1e9)))
-    second = otel.collect()
-    assert second["container.cpu.utilization"][0][0] == pytest.approx(0.5, abs=0.1)
+    # 2 s later the container has used 2 more CPU-seconds: one full core of a 2-core limit -> 50%
+    now[0] += 2.0
+    (cgroup_v1 / "cpuacct/cpuacct.usage").write_text(str(int((587.217687224 + 2.0) * 1e9)))
+    assert otel.collect()["container.cpu.utilization"][0][0] == pytest.approx(0.5)
+    # next 2 s: 1 more CPU-second -> half a core -> 25%
+    now[0] += 2.0
+    (cgroup_v1 / "cpuacct/cpuacct.usage").write_text(str(int((587.217687224 + 3.0) * 1e9)))
+    assert otel.collect()["container.cpu.utilization"][0][0] == pytest.approx(0.25)

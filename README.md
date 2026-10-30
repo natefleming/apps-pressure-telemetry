@@ -119,7 +119,7 @@ alongside `mlflow.openai.autolog()`. The template's chat UI assets (`/assets/*`)
 `ChatDatabricks` (databricks-langchain) and `ChatOpenAI` (langchain-openai). All four combinations of
 `invoke` / `stream` / `ainvoke` / `astream` were verified against a Databricks Foundation Model endpoint.
 
-Metrics are collected every `export_interval_seconds` (default 10 s; the OTel SDK default is 60 s).
+Metrics are collected every `export_interval_seconds` (default 10 s, or `OTEL_METRIC_EXPORT_INTERVAL` if set; the OTel SDK default is 60 s).
 With `--workers N`, each worker reports its own series (`service.instance.id`) and the container
 shows up as `host.name`. Aggregate `container.*` with **max** and the concurrency peaks with **sum**.
 
@@ -140,7 +140,7 @@ The resource and LLM layers work in any Python app. The request layer depends on
 telemetry = instrument(
     app,
     service_name=None,  # default: OTEL_SERVICE_NAME, then DATABRICKS_APP_NAME
-    export_interval_seconds=10.0,
+    export_interval_seconds=None,  # default: OTEL_METRIC_EXPORT_INTERVAL (ms) if set, else 10 s
     container=True,
     system=True,
     http=True,
@@ -153,7 +153,7 @@ telemetry = instrument(
 counter = telemetry.meter.create_counter("app.orders")  # your own signals, same providers
 ```
 
-`instrument()` is idempotent per process (options from the first call win). With an app it only wires
+`instrument()` is idempotent per process: options from the first call win, and a warning is logged if a later call passes different ones. With an app it only wires
 middleware, and providers start on the app's first ASGI event or WSGI request. Without an app it starts
 immediately. `telemetry.meter` / `.tracer` can be used right away: instruments created before startup
 forward once it starts. If the process already has OpenTelemetry SDK providers (for example under

@@ -7,7 +7,11 @@ All notable changes to this project are documented here. Versions follow [Semant
 - `instrument(..., exclude_metrics=[...])`: drop individual metrics by name or glob pattern, across every layer
   (implemented with OpenTelemetry Views).
 - LLM calls made through `with_raw_response` (langchain-openai's `ChatOpenAI.invoke` / `ainvoke`) now record token
-  usage. Raw streaming responses pass through untouched.
+  usage. Raw streaming responses and `with_streaming_response` bodies pass through untouched (never read early).
+- `export_interval_seconds` now defaults to the standard `OTEL_METRIC_EXPORT_INTERVAL` (milliseconds) when it is set,
+  else 10 s. An explicit argument still wins.
+- A warning is logged when `instrument()` is called again with different options; previously they were silently
+  ignored (the first call's options still apply).
 - Docs: "Choosing what's collected" (flag → metrics, `exclude_metrics`, cost guidance, excluded request paths) and
   verified LangChain coverage (`ChatDatabricks`, `ChatOpenAI`).
 
