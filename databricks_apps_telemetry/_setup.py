@@ -25,6 +25,7 @@ from typing import Any
 from opentelemetry import metrics, trace
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import MetricReader, PeriodicExportingMetricReader
+from opentelemetry.sdk.metrics.view import DropAggregation, View
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter
@@ -55,6 +56,7 @@ class _Options:
     event_loop: bool
     metric_readers: Sequence[MetricReader] | None
     span_exporters: Sequence[SpanExporter] | None
+    exclude_metrics: Sequence[str]
 
 
 @dataclass
@@ -123,10 +125,15 @@ def _otlp_configured() -> bool:
 
 
 def _meter_provider(
-    resource: Resource, export_interval_seconds: float, metric_readers: Sequence[MetricReader] | None
+    resource: Resource,
+    export_interval_seconds: float,
+    metric_readers: Sequence[MetricReader] | None,
+    exclude_metrics: Sequence[str],
 ) -> metrics.MeterProvider:
     existing: metrics.MeterProvider = metrics.get_meter_provider()
     if isinstance(existing, MeterProvider) and metric_readers is None:
+        if exclude_metrics:
+            logger.warning("exclude_metrics ignored: reusing an existing MeterProvider (add Views to it instead)")
         return existing  # e.g. running under `opentelemetry-instrument`
     readers: list[MetricReader] = list(metric_readers or [])
     if not readers and _otlp_configured():
@@ -137,7 +144,9 @@ def _meter_provider(
                 OTLPMetricExporter(), export_interval_millis=int(export_interval_seconds * 1000)
             )
         )
-    provider: MeterProvider = MeterProvider(resource=resource, metric_readers=readers)
+    # Excluded metrics are dropped with Views: never aggregated, never exported, for every instrumentation
+    views: list[View] = [View(instrument_name=pattern, aggregation=DropAggregation()) for pattern in exclude_metrics]
+    provider: MeterProvider = MeterProvider(resource=resource, metric_readers=readers, views=views)
     metrics.set_meter_provider(provider)
     return provider
 
@@ -171,7 +180,7 @@ def start() -> None:
         opts: _Options = _options
         resource: Resource = _resource(opts.service_name)
         meter_provider: metrics.MeterProvider = _meter_provider(
-            resource, opts.export_interval_seconds, opts.metric_readers
+            resource, opts.export_interval_seconds, opts.metric_readers, opts.exclude_metrics
         )
         tracer_provider: trace.TracerProvider = _tracer_provider(resource, opts.span_exporters)
         meter: metrics.Meter = meter_provider.get_meter(INSTRUMENTATION_NAME)
@@ -226,6 +235,7 @@ def instrument(
     http: bool = True,
     openai: bool = True,
     event_loop: bool = True,
+    exclude_metrics: Sequence[str] = (),
     metric_readers: Sequence[MetricReader] | None = None,
     span_exporters: Sequence[SpanExporter] | None = None,
 ) -> Telemetry:
@@ -242,6 +252,8 @@ def instrument(
             ``[flask]``) extra.
         openai: instrument the OpenAI SDK, incl. DatabricksOpenAI (``[openai]`` extra or openai installed).
         event_loop: asyncio event-loop lag (ASGI apps).
+        exclude_metrics: metric names or glob patterns to drop, across every layer - e.g.
+            ``["system.*", "process.runtime.*", "http.server.response.size"]``.
         metric_readers: replace the default OTLP reader (tests, or extra destinations such as a second
             exporter for Datadog/Grafana). Exporters are only created when an OTLP endpoint is configured.
         span_exporters: same for spans.
@@ -261,6 +273,7 @@ def instrument(
                 event_loop,
                 metric_readers,
                 span_exporters,
+                tuple(exclude_metrics),
             )
     if app is None:
         start()

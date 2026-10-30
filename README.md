@@ -114,6 +114,11 @@ alongside `mlflow.openai.autolog()`. The template's chat UI assets (`/assets/*`)
 | Spans | SERVER span per request, CLIENT span `chat <model>` per LLM call | Exact percentiles per request or call |
 | Host / process | `system.*`, `process.*` (`[system]`) | `system.*` is the **node**, not the app |
 
+**LLM clients covered:** anything that calls the `openai` SDK's `chat.completions.create` or `responses.create`
+(sync or async, streaming or not). That includes `DatabricksOpenAI` / `AsyncDatabricksOpenAI` and LangChain's
+`ChatDatabricks` (databricks-langchain) and `ChatOpenAI` (langchain-openai). All four combinations of
+`invoke` / `stream` / `ainvoke` / `astream` were verified against a Databricks Foundation Model endpoint.
+
 Metrics are collected every `export_interval_seconds` (default 10 s; the OTel SDK default is 60 s).
 With `--workers N`, each worker reports its own series (`service.instance.id`) and the container
 shows up as `host.name`. Aggregate `container.*` with **max** and the concurrency peaks with **sum**.
@@ -141,6 +146,7 @@ telemetry = instrument(
     http=True,
     openai=True,
     event_loop=True,
+    exclude_metrics=(),  # names or glob patterns to drop, e.g. ["system.*"]; see "Choosing what's collected"
     metric_readers=None,  # e.g. add a second destination (Datadog/Grafana) or test readers
     span_exporters=None,
 )
@@ -152,6 +158,46 @@ middleware, and providers start on the app's first ASGI event or WSGI request. W
 immediately. `telemetry.meter` / `.tracer` can be used right away: instruments created before startup
 forward once it starts. If the process already has OpenTelemetry SDK providers (for example under
 `opentelemetry-instrument`), they are reused.
+
+## Choosing what's collected
+
+Each layer has a flag. These are the metrics (and spans) each one controls:
+
+| Flag | Metrics | Spans |
+|---|---|---|
+| `container` | `container.cpu.*`, `container.memory.*`, `container.filesystem.*` | none |
+| `system` | `system.*`, `process.*`, `process.runtime.*`, `cpython.gc.*` (`[system]` extra) | none |
+| `http` | `app.http.requests.inflight.peak`, `app.http.time_to_first_byte`, `http.server.*` | one SERVER span per request |
+| `openai` | `gen_ai.client.operation.duration`, `gen_ai.client.token.usage`, `app.genai.*` | one CLIENT span per LLM call |
+| `event_loop` | `app.event_loop.lag.peak` | none |
+
+To drop **individual metrics** from any layer, pass names or glob patterns. They are removed with OpenTelemetry
+Views, so they are never aggregated or exported:
+
+```python
+instrument(
+    agent_server,
+    exclude_metrics=[
+        "system.*",  # node-level, not the app; container.* is the app's view
+        "process.runtime.*",
+        "cpython.gc.*",
+        "http.server.response.size",
+        "http.server.request.size",
+    ],
+)
+```
+
+`exclude_metrics` applies to the meter provider this library creates. If the process already has one (e.g. under
+`opentelemetry-instrument`), add Views to that provider instead.
+
+**Cost:** App telemetry ingestion is billed, and `system.*` is by far the noisiest group: `system.disk.*` and
+`system.network.*` emit one series per host device, which was 56 disk series per export on a MEDIUM app. For app
+health, `container.*` is the signal to keep. Dropping `system.*` is a good default unless you need node-level detail.
+The OpenTelemetry system-metrics instrumentation also honours `OTEL_PYTHON_SYSTEM_METRICS_EXCLUDED_METRICS`
+(comma-separated globs, set in the app's environment), if you'd rather configure it outside code.
+
+**Requests that never count as load:** `/health`, `/healthz`, `/ping`, `/favicon.ico` and anything under `/assets/` or
+`/static/` (e.g. the AgentServer chat UI) are skipped by the request metrics and get no request spans.
 
 ## Notes and limits
 

@@ -191,3 +191,17 @@ def test_subclass_clients_are_covered(otel, inst) -> None:
     )
     c.chat.completions.create(model=MODEL, messages=[])
     assert otel.collect()["gen_ai.client.operation.duration"][0][0][0] == 1
+
+
+def test_raw_response_records_tokens_and_still_parses(otel, inst, client) -> None:
+    # langchain-openai's non-streaming path: client.chat.completions.with_raw_response.create(...)
+    raw = client.chat.completions.with_raw_response.create(model=MODEL, messages=[])
+    assert raw.parse().choices[0].message.content == "hi"  # caller's parse still works
+    assert _tokens(otel.collect()) == {"input": 12, "output": 5}
+
+
+def test_raw_streaming_response_is_passed_through(otel, inst, client) -> None:
+    raw = client.chat.completions.with_raw_response.create(model=MODEL, messages=[], stream=True)
+    chunks = list(raw.parse())  # untouched: the caller parses and iterates it
+    assert len(chunks) == 4
+    assert otel.collect()["gen_ai.client.operation.duration"][0][0][0] == 1

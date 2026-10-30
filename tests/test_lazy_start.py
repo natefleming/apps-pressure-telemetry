@@ -139,3 +139,20 @@ def test_flask_and_dash_style_apps() -> None:
     assert result["features"][0] == "http(Flask)"
     assert result["ttfb_count"] == 3
     assert result["inflight_peak"] == 1
+
+
+def test_exclude_metrics_drops_matching_metrics_only() -> None:
+    result = _run("""
+        import json
+        from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+        from databricks_apps_telemetry import instrument
+
+        reader = InMemoryMetricReader()
+        instrument(metric_readers=[reader], exclude_metrics=["system.*", "process.runtime.*", "container.memory.*"])
+        names = {m.name for rm in reader.get_metrics_data().resource_metrics for sm in rm.scope_metrics for m in sm.metrics}
+        print(json.dumps(sorted(names)))
+    """)
+    assert not [n for n in result if n.startswith(("system.", "process.runtime.", "container.memory."))]
+    assert "container.filesystem.utilization" in result and "container.cpu.limit" in result
+    # process.* kept, only process.runtime.* dropped (metric names vary across instrumentation versions)
+    assert [n for n in result if n.startswith("process.") and not n.startswith("process.runtime.")]

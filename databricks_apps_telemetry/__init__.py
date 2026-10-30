@@ -26,4 +26,4 @@ from databricks_apps_telemetry._openai import error_type
 from databricks_apps_telemetry._setup import Telemetry, instrument
 
 __all__ = ["Telemetry", "__version__", "error_type", "instrument"]
-__version__: str = "0.1.0"
+__version__: str = "0.2.0"

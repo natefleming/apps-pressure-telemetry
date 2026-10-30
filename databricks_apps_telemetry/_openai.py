@@ -71,6 +71,22 @@ def _visible_text(content: object) -> str:
     return ""
 
 
+def _is_raw_response(obj: Any) -> bool:
+    """`client.chat.completions.with_raw_response.create(...)` (used by langchain-openai) returns an HTTP
+    response wrapper instead of the parsed object."""
+    return callable(getattr(obj, "parse", None)) and hasattr(obj, "http_response")
+
+
+def _parsed(obj: Any) -> Any:
+    """Parsed body of a raw response; `parse()` caches, so the caller's own parse() returns the same object."""
+    if not _is_raw_response(obj):
+        return obj
+    try:
+        return obj.parse()
+    except Exception:  # noqa: BLE001 - telemetry must not change the error; the caller's own parse() raises it
+        return None
+
+
 def _usage(obj: Any) -> tuple[int | None, int | None]:
     usage: Any = getattr(obj, "usage", None)
     if usage is None:
@@ -142,8 +158,11 @@ class OpenAIInstrumentation:
                 call.fail(exc)
                 raise
             if kwargs.get("stream"):
+                if _is_raw_response(result):  # raw streaming response: the caller parses it; time to headers
+                    call.finish()
+                    return result
                 return _StreamProxy(result, call)
-            call.finish(*_usage(result))
+            call.finish(*_usage(_parsed(result)))
             return result
 
         return create
@@ -158,8 +177,11 @@ class OpenAIInstrumentation:
                 call.fail(exc)
                 raise
             if kwargs.get("stream"):
+                if _is_raw_response(result):
+                    call.finish()
+                    return result
                 return _AsyncStreamProxy(result, call)
-            call.finish(*_usage(result))
+            call.finish(*_usage(_parsed(result)))
             return result
 
         return create
