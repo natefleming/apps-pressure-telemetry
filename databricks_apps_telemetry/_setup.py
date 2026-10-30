@@ -46,10 +46,13 @@ OTLP_ENDPOINT_VARS: tuple[str, ...] = (
 EXCLUDED_URLS: str = "health,healthz,ping,favicon.ico,/assets/,/static/"
 
 
+DEFAULT_EXPORT_INTERVAL_SECONDS: float = 10.0  # the OpenTelemetry SDK default is 60 s
+
+
 @dataclass
 class _Options:
     service_name: str | None
-    export_interval_seconds: float
+    export_interval_seconds: float | None
     container: bool
     system: bool
     openai: bool
@@ -124,9 +127,22 @@ def _otlp_configured() -> bool:
     return any(os.environ.get(var) for var in OTLP_ENDPOINT_VARS)
 
 
+def _export_interval_seconds(explicit: float | None) -> float:
+    """Explicit argument, else the standard OTEL_METRIC_EXPORT_INTERVAL (milliseconds), else 10 s."""
+    if explicit is not None:
+        return explicit
+    env: str | None = os.environ.get("OTEL_METRIC_EXPORT_INTERVAL")
+    if env:
+        try:
+            return float(env) / 1000
+        except ValueError:
+            logger.warning("ignoring OTEL_METRIC_EXPORT_INTERVAL=%r (expected milliseconds)", env)
+    return DEFAULT_EXPORT_INTERVAL_SECONDS
+
+
 def _meter_provider(
     resource: Resource,
-    export_interval_seconds: float,
+    export_interval_seconds: float | None,
     metric_readers: Sequence[MetricReader] | None,
     exclude_metrics: Sequence[str],
 ) -> metrics.MeterProvider:
@@ -141,7 +157,8 @@ def _meter_provider(
 
         readers.append(
             PeriodicExportingMetricReader(
-                OTLPMetricExporter(), export_interval_millis=int(export_interval_seconds * 1000)
+                OTLPMetricExporter(),
+                export_interval_millis=int(_export_interval_seconds(export_interval_seconds) * 1000),
             )
         )
     # Excluded metrics are dropped with Views: never aggregated, never exported, for every instrumentation
@@ -229,7 +246,7 @@ def instrument(
     app: Any = None,
     *,
     service_name: str | None = None,
-    export_interval_seconds: float = 10.0,
+    export_interval_seconds: float | None = None,
     container: bool = True,
     system: bool = True,
     http: bool = True,
@@ -245,7 +262,8 @@ def instrument(
         app: An MLflow ``AgentServer`` or its ``.app``, any FastAPI / Starlette app, a Flask app, or a
             Dash app. ``None`` = process-level signals only (Streamlit, scripts), started immediately.
         service_name: Defaults to OTEL_SERVICE_NAME, then DATABRICKS_APP_NAME.
-        export_interval_seconds: How often metrics are collected and exported (SDK default is 60).
+        export_interval_seconds: How often metrics are collected and exported. Default: the standard
+            ``OTEL_METRIC_EXPORT_INTERVAL`` (milliseconds) if set, else 10 s (the SDK's own default is 60 s).
         container: cgroup CPU / memory / disk vs limits (``container.*``).
         system: host + process metrics; needs the ``[system]`` extra.
         http: request concurrency / time to first byte, plus request spans with the ``[fastapi]`` (or
@@ -259,21 +277,33 @@ def instrument(
         span_exporters: same for spans.
 
     Returns:
-        The process-wide Telemetry handle. Options from the first call win; later calls only add apps.
+        The process-wide Telemetry handle. Options from the first call win; later calls only add apps
+        (a warning is logged if a later call asks for different options).
     """
     global _options
+    requested: _Options = _Options(
+        service_name,
+        export_interval_seconds,
+        container,
+        system,
+        openai,
+        event_loop,
+        metric_readers,
+        span_exporters,
+        tuple(exclude_metrics),
+    )
     with _lock:
         if _options is None:
-            _options = _Options(
-                service_name,
-                export_interval_seconds,
-                container,
-                system,
-                openai,
-                event_loop,
-                metric_readers,
-                span_exporters,
-                tuple(exclude_metrics),
+            _options = requested
+        elif requested != _options:
+            logger.warning(
+                "instrument() was already called in this process; keeping its options and ignoring the new ones "
+                "(%s). Pass all options in the first call.",
+                ", ".join(
+                    f"{k}={getattr(requested, k)!r}"
+                    for k in requested.__dataclass_fields__
+                    if getattr(requested, k) != getattr(_options, k)
+                ),
             )
     if app is None:
         start()
