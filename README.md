@@ -59,6 +59,10 @@ from databricks_apps_telemetry import instrument
    and deploy. You don't need any environment variables or an `opentelemetry-instrument` wrapper: Databricks Apps
    injects the collector endpoint and resource attributes.
 
+   **Pin the version** (`apps-pressure-telemetry[all]==0.1.1`) and bump the pin to upgrade: Databricks Apps skips
+   dependency installation when `requirements.txt` is unchanged ("Requirements have not changed. Skipping
+   installation."), so an unpinned requirement stays on whatever version the first deploy installed.
+
    Prefer **`pyproject.toml` + `uv.lock`** over `requirements.txt` (Apps then runs `uv sync --locked`). Apps keeps
    the venv between deploys and pip skips an already-installed name+version, so a rebuilt wheel with an unchanged
    version is silently not installed; the lock pins wheel hashes, so uv reinstalls it and removes stale packages.
