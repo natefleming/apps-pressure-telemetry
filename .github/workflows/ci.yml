@@ -25,6 +25,12 @@ jobs:
       - run: uv run ruff format --check .
       - name: Lint GitHub workflows
         run: uvx --from actionlint-py actionlint
+      - name: Example app pins the project version
+        run: |
+          project="$(uv version --short)"
+          example="$(grep -oE 'apps-pressure-telemetry\[all\]==[^ ]+' examples/agent-server-app/app/requirements.txt | cut -d= -f3)"
+          echo "pyproject=$project example-pin=$example"
+          test "$project" = "$example"
 
   test:
     name: test (py${{ matrix.python }}${{ matrix.resolution == 'lowest-direct' && ', lowest deps' || '' }})

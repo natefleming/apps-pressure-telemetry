@@ -55,17 +55,20 @@ from databricks_apps_telemetry import instrument
                traces_table: main.app_obs.otel_spans
    ```
 
-2. Add `apps-pressure-telemetry[all]` to the app's dependencies, call `instrument(app)` where the app is created,
-   and deploy. You don't need any environment variables or an `opentelemetry-instrument` wrapper: Databricks Apps
-   injects the collector endpoint and resource attributes.
+2. Add `apps-pressure-telemetry[all]==<latest version>` to the app's dependencies, call `instrument(app)` where the
+   app is created, and deploy. You don't need any environment variables or an `opentelemetry-instrument` wrapper:
+   Databricks Apps injects the collector endpoint and resource attributes.
 
-   **Pin the version** (`apps-pressure-telemetry[all]==0.1.1`) and bump the pin to upgrade: Databricks Apps skips
-   dependency installation when `requirements.txt` is unchanged ("Requirements have not changed. Skipping
-   installation."), so an unpinned requirement stays on whatever version the first deploy installed.
+   **Pin the version, and bump the pin to upgrade.** With a `requirements.txt`, Databricks Apps skips dependency
+   installation when the file is unchanged ("Requirements have not changed. Skipping installation."), so *every*
+   dependency stays at whatever the first deploy resolved. An unpinned `apps-pressure-telemetry[all]` never picks up
+   a new release. Changing the pin changes the file, which triggers a reinstall.
 
-   Prefer **`pyproject.toml` + `uv.lock`** over `requirements.txt` (Apps then runs `uv sync --locked`). Apps keeps
-   the venv between deploys and pip skips an already-installed name+version, so a rebuilt wheel with an unchanged
-   version is silently not installed; the lock pins wheel hashes, so uv reinstalls it and removes stale packages.
+   With **`pyproject.toml` + `uv.lock`** (Apps then runs `uv sync --locked`), the lock already pins exact versions:
+   bump the version in `pyproject.toml`, run `uv lock`, and deploy both files. This layout is also the one to use for
+   vendored or locally built wheels: Apps keeps the venv between deploys and pip skips an already-installed
+   name+version even if the wheel's contents changed, while the lock pins wheel hashes, so uv reinstalls it and
+   removes stale packages.
 
 ### MLflow AgentServer
 

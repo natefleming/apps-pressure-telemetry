@@ -10,7 +10,7 @@ exports. It deploys as one Declarative Automation Bundle.
 |---|---|
 | `app/agent_server/start_server.py` | The MLflow agent template layout. The only telemetry code is `instrument(agent_server)` |
 | `app/agent_server/agent.py` | An async `@stream` / `@invoke` agent calling a Foundation Model through `AsyncDatabricksOpenAI` (streaming, with token usage), plus `mlflow.openai.autolog()` |
-| `app/requirements.txt` | `apps-pressure-telemetry[all]==<version>` (pinned: Apps only reinstalls dependencies when this file changes, so bump the pin to upgrade), `mlflow`, `databricks-openai` |
+| `app/requirements.txt` | `apps-pressure-telemetry[all]` pinned to the **latest release** (Apps only reinstalls dependencies when this file changes, so bump the pin to upgrade; CI and the release workflow check that it matches the project version), `mlflow`, `databricks-openai` |
 | `resources/app.yml` | The app (2 uvicorn workers) with **App telemetry** writing to `<catalog>.<schema>.otel_*`, and the schema |
 | `notebooks/query_metrics.py` | Example queries: metric inventory, container CPU / memory / disk vs limits, process metrics, request concurrency / time to first byte / event-loop lag, routes, LLM metrics and span percentiles, per-request LLM breakdown, freshness, alert-ready queries |
 | `resources/query_job.yml` | A job that runs the notebook against this app's tables |
@@ -36,6 +36,8 @@ curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
 
 databricks bundle run query_metrics --var catalog=<catalog>   # or open notebooks/query_metrics in the workspace
 ```
+
+The example installs the **published** package from PyPI. To try unreleased changes, build the wheel (`uv build` at the repo root), copy it into `app/`, and point `requirements.txt` at it (`./apps_pressure_telemetry-<version>-py3-none-any.whl`) for that deploy.
 
 The first metrics land in `otel_metrics` about 10–30 s after the first request. In `mode: development` the
 schema name gets a `dev_<user>_` prefix.
