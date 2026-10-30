@@ -28,7 +28,7 @@ import os
 import shutil
 import threading
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from opentelemetry import metrics
@@ -116,9 +116,16 @@ class CgroupReader:
 class ContainerMetrics:
     """Registers observable instruments that sample the cgroup on every metric export."""
 
-    def __init__(self, meter: metrics.Meter, reader: CgroupReader | None = None, path: str = "/") -> None:
+    def __init__(
+        self,
+        meter: metrics.Meter,
+        reader: CgroupReader | None = None,
+        path: str = "/",
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self.reader: CgroupReader = reader or CgroupReader()
         self.path: str = path
+        self._clock: Callable[[], float] = clock
         self._lock: threading.Lock = threading.Lock()
         self._last_cpu: tuple[float, float] | None = None  # (monotonic time, cpu seconds)
 
@@ -195,7 +202,7 @@ class ContainerMetrics:
         seconds: float | None = self.reader.cpu_usage_seconds()
         if seconds is None:
             return
-        now: float = time.monotonic()
+        now: float = self._clock()
         with self._lock:
             last, self._last_cpu = self._last_cpu, (now, seconds)
         if last is not None and now > last[0]:
