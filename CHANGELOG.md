@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+- Docs and example: pin the version on Databricks Apps (Apps skips installation when `requirements.txt`
+  is unchanged, so an unpinned requirement never upgrades).
+
 ## [0.1.1] - 2026-10-30
 
 - `instrument(..., exclude_metrics=[...])`: drop individual metrics by name or glob pattern, across every layer

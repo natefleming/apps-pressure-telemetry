@@ -1,4 +1,4 @@
-apps-pressure-telemetry[all]
+apps-pressure-telemetry[all]==0.1.1  # pin: Apps only reinstalls when this file changes; bump to upgrade
 mlflow>=3.15
 databricks-openai>=0.18
 databricks-sdk

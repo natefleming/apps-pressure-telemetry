@@ -1,8 +1,9 @@
 # Release on a version tag: build once, publish to TestPyPI, then (after approval on the `pypi`
 # environment) to PyPI, then create a GitHub release with the artifacts.
 #
-#   1. Bump `version` in pyproject.toml and `__version__` in databricks_apps_telemetry/__init__.py,
-#      update CHANGELOG.md, merge to main.
+#   1. Bump `version` in pyproject.toml, `__version__` in databricks_apps_telemetry/__init__.py and the
+#      `apps-pressure-telemetry[all]==` pin in examples/agent-server-app/app/requirements.txt; update
+#      CHANGELOG.md; merge to main. (CI fails the PR if the example pin and pyproject disagree.)
 #   2. git tag v0.1.0 && git push origin v0.1.0
 #
 # Publishing uses PyPI Trusted Publishing (OIDC) - no API tokens are stored in the repository. One-time
@@ -24,13 +25,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - name: Tag, pyproject version and __version__ must agree
+      - name: Tag, pyproject version, __version__ and the example's pin must agree
         run: |
           tag="${GITHUB_REF_NAME#v}"
           project="$(uv version --short)"
           package="$(python3 -c 'import re,pathlib; print(re.search(r"__version__: str = \"([^\"]+)\"", pathlib.Path("databricks_apps_telemetry/__init__.py").read_text()).group(1))')"
-          echo "tag=$tag pyproject=$project __version__=$package"
-          test "$tag" = "$project" && test "$tag" = "$package"
+          example="$(grep -oE 'apps-pressure-telemetry\[all\]==[^ ]+' examples/agent-server-app/app/requirements.txt | cut -d= -f3)"
+          echo "tag=$tag pyproject=$project __version__=$package example-pin=$example"
+          test "$tag" = "$project" && test "$tag" = "$package" && test "$tag" = "$example"
       - run: uv run --isolated pytest -q
       - run: uv build
       - run: uvx twine check --strict dist/*
