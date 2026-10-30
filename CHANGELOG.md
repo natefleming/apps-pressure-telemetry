@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here. Versions follow [Semantic Versioning](https://semver.org/).
 
-## [0.2.0] - 2026-10-30
+## [0.1.1] - 2026-10-30
 
 - `instrument(..., exclude_metrics=[...])`: drop individual metrics by name or glob pattern, across every layer
   (implemented with OpenTelemetry Views).
